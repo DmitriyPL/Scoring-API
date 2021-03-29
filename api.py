@@ -52,26 +52,27 @@ class Field(object):
         self.name = name
 
     def parse_validate(self, value):
+        if not self.nullable and not value:
+            raise ValueError("can't be empty")
         return value
 
 
 class CharField(Field):
     def parse_validate(self, value):
-        if not self.required and value is None:
-            return ""
-        elif not self.nullable and not value:
-            raise ValueError("can't be empty")
-        elif isinstance(value, str):
+        value = super(CharField, self).parse_validate(value)
+        if isinstance(value, str):
             return value
         raise ValueError("isn't <str>")
+
+    def just_return_value(self, value):
+        if (not self.required and not value) or (self.nullable and not value):
+            return True
+        return False
 
 
 class ArgumentsField(Field):
     def parse_validate(self, value):
-        if not self.required and value is None:
-            return {}
-        elif not self.nullable and not value:
-            raise ValueError("can't be empty")
+        value = super(ArgumentsField, self).parse_validate(value)
         if isinstance(value, dict):
             return value
         raise ValueError("isn't <dict>")
@@ -80,22 +81,20 @@ class ArgumentsField(Field):
 class EmailField(CharField):
     def parse_validate(self, value):
         value = super(EmailField, self).parse_validate(value)
-        if not self.required and not value:
-            return value
-        if self.nullable and not value:
+        if self.just_return_value(value):
             return value
         elif EMAIL_REGEX.match(value):
             return value
         raise ValueError("isn't <e-mail : ...@...>")
 
+    def just_return_value(self, value):
+        return super(EmailField, self).just_return_value(value)
+
 
 class PhoneField(Field):
     def parse_validate(self, value):
-        if not self.required and value is None:
-            return ""
-        elif not self.nullable and not value:
-            raise ValueError("can't be empty")
-        elif self.nullable and not value:
+        value = super(PhoneField, self).parse_validate(value)
+        if self.nullable and not value:
             return value
         elif PHONE_REGEX.match(str(value)):
             return value
@@ -105,9 +104,7 @@ class PhoneField(Field):
 class DateField(CharField):
     def parse_validate(self, value):
         value = super(DateField, self).parse_validate(value)
-        if not self.required and not value:
-            return value
-        elif self.nullable and not value:
+        if self.just_return_value(value):
             return value
         res = DATA_REGEX.match(value)
         err = ""
@@ -121,13 +118,14 @@ class DateField(CharField):
             raise ValueError(err)
         return value
 
+    def just_return_value(self, value):
+        return super(DateField, self).just_return_value(value)
+
 
 class BirthDayField(DateField):
     def parse_validate(self, value):
         value = super(BirthDayField, self).parse_validate(value)
-        if not self.required and not value:
-            return value
-        elif self.nullable and not value:
+        if self.just_return_value(value):
             return value
 
         res = DATA_REGEX.match(value)
@@ -137,12 +135,13 @@ class BirthDayField(DateField):
             raise ValueError("More than 70 years have passed")
         return value
 
+    def just_return_value(self, value):
+        return super(BirthDayField, self).just_return_value(value)
+
 
 class GenderField(Field):
     def parse_validate(self, value):
-        if not self.required and value is None:
-            return ""
-        elif not self.nullable and value != 0 and not value:
+        if not self.nullable and value != 0 and not value:
             raise ValueError("can't be empty")
         elif self.nullable and not value:
             return value
@@ -159,10 +158,7 @@ class GenderField(Field):
 
 class ClientIDsField(Field):
     def parse_validate(self, value):
-        if not self.required and value is None:
-            return []
-        elif not self.nullable and not value:
-            raise ValueError("can't be empty")
+        value = super(ClientIDsField, self).parse_validate(value)
 
         err = ""
         if not isinstance(value, list):
@@ -218,12 +214,15 @@ class Request(metaclass=RequestMeta):
             return False
         for f in self.fields:
             f_name = f.name
+            f_value = self.request.get(f_name)
             if f.required and f_name not in self.request.keys():
                 self.errors.append("'{}' is not defined".format(f_name))
+            elif not f.required and f_value is None:
+                setattr(self, f_name, self.get_value_for_optional_field(f))
+                continue
             else:
-                f_value = self.request.get(f_name)
                 try:
-                    self.__setattr__(f_name, f.parse_validate(f_value))
+                    setattr(self, f_name, f.parse_validate(f_value))
                 except ValueError as e:
                     self.errors.append("'{}' - {}".format(f_name, e))
 
@@ -237,6 +236,15 @@ class Request(metaclass=RequestMeta):
 
     def errfmt(self):
         return ", ".join(self.errors)
+
+    def get_value_for_optional_field(self, field):
+        if isinstance(field, ClientIDsField):
+            value = []
+        elif isinstance(field, ArgumentsField):
+            value = {}
+        else:
+            value = ""
+        return value
 
 
 class ClientsInterestsRequest(Request):
@@ -275,7 +283,7 @@ class OnlineScoreRequest(Request):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
-    phone = PhoneField(required=False, nullable=True)
+    phone = PhoneField(required=False, nullable=False)
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
 
@@ -285,19 +293,14 @@ class OnlineScoreRequest(Request):
             Используется родительская имплементация в классе Request
         """
         default_valid = super(OnlineScoreRequest, self).is_valid()
-        if not default_valid:
-            return False
-        return True
-
-
-def validate_by_pair(arguments):
-    """ Валидируем запрос OnlineScoreRequest по условию наличия пар заполненых параметров """
-
-    if (arguments.phone and arguments.email) or \
-            (arguments.first_name and arguments.last_name) or \
-            (arguments.gender in [0, 1, 2] and arguments.birthday):
-        return True
-    return False
+        if default_valid and (
+                    (self.phone and self.email) or
+                    (self.first_name and self.last_name) or
+                    (self.gender in [0, 1, 2] and self.birthday)
+                ):
+            return True
+        self.errors.append(ERRORS[INVALID_REQUEST])
+        return False
 
 
 def add_has_in_ctx(arguments, ctx):
@@ -321,8 +324,6 @@ class OnlineScoreHandler(RequestHandler):
             2. Пишем контекст
             3. Возвращаем результат
         """
-        if not validate_by_pair(arguments):
-            return ERRORS[INVALID_REQUEST], INVALID_REQUEST
         add_has_in_ctx(arguments, ctx)
 
         if request.is_admin:
