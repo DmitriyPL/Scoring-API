@@ -12,6 +12,7 @@ from optparse import OptionParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import scoring
+import store as redis
 
 
 SALT = "Otus"
@@ -399,7 +400,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = redis
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
