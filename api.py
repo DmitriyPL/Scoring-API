@@ -12,7 +12,7 @@ from optparse import OptionParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import scoring
-import store as redis
+from store import RedisConnection
 
 
 SALT = "Otus"
@@ -39,7 +39,7 @@ GENDERS = {
     MALE: "male",
     FEMALE: "female",
 }
-EMAIL_REGEX = re.compile(r'.*@.*')
+EMAIL_REGEX = re.compile(r'[\d|\w].*@.*.\w*')
 PHONE_REGEX = re.compile(r'^7\d{10}$')
 DATA_REGEX = re.compile(r'^(\d{2}).(\d{2}).\d{4}$')
 
@@ -95,8 +95,12 @@ class EmailField(CharField):
 class PhoneField(Field):
     def parse_validate(self, value):
         value = super(PhoneField, self).parse_validate(value)
-        if self.nullable and not value:
+        if not isinstance(value, (int, str)):
+            raise ValueError("wrong format")
+        elif self.nullable and value != 0 and not value:
             return value
+        elif len(str(value)) != 11:
+            raise ValueError("should be 11 symbols in phone")
         elif PHONE_REGEX.match(str(value)):
             return value
         raise ValueError("isn't <phone : (7)1234252678>")
@@ -111,6 +115,8 @@ class DateField(CharField):
         err = ""
         if not res:
             err = "isn't <data : DD.MM.YYYY>"
+        elif int(res.group(1)) < 1 or int(res.group(2)) < 1:
+            err = "min value is '1'"
         elif int(res.group(1)) > 31:
             err = "We have only 31 days in month (max)"
         elif int(res.group(2)) > 12:
@@ -400,7 +406,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = redis
+    store = RedisConnection()
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
