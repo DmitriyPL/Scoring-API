@@ -1,9 +1,11 @@
-import hashlib
-import datetime
 import functools
+import datetime
 import unittest
+import hashlib
+
 
 import api
+from store import RedisConnection
 
 
 def cases(cases):
@@ -12,7 +14,11 @@ def cases(cases):
         def wrapper(*args):
             for c in cases:
                 new_args = args + (c if isinstance(c, tuple) else (c,))
-                f(*new_args)
+                try:
+                    f(*new_args)
+                except AssertionError:
+                    print(new_args[1])
+                    raise AssertionError
         return wrapper
     return decorator
 
@@ -21,7 +27,7 @@ class TestSuite(unittest.TestCase):
     def setUp(self):
         self.context = {}
         self.headers = {}
-        self.settings = {}
+        self.settings = RedisConnection()
 
     def get_response(self, request):
         return api.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
