@@ -1,19 +1,8 @@
 import redis
 import time
+import os
 
-
-from functools import wraps, partial
-
-
-# set STORAGE_HOST="redis-15795.c13559.us-east-1-mz.ec2.cloud.rlrcp.com"
-# os.environ.get('STORAGE_HOST')
-# os.environ.get('STORAGE_PSWD')
-
-def attach_wrapper(obj, func=None):
-    if func is None:
-        return partial(attach_wrapper, obj)
-    setattr(obj, func.__name__, func)
-    return func
+from functools import wraps
 
 
 def retry(tries=3, timeout=0.1, connection_type="like_db"):
@@ -32,13 +21,6 @@ def retry(tries=3, timeout=0.1, connection_type="like_db"):
                             return None
                         else:
                             raise Exception
-
-        @attach_wrapper(wrapper)
-        def set_retry_param(new_tries, new_timeout):
-            nonlocal tries, timeout
-            tries = new_tries
-            timeout = new_timeout
-
         return wrapper
     return decorate
 
@@ -49,7 +31,7 @@ class RedisConnection:
                  host="redis-15795.c13559.us-east-1-mz.ec2.cloud.rlrcp.com",
                  port=15795,
                  index_db=0,
-                 password="***",
+                 password=os.environ.get('STORAGE_PSWD'),
                  max_connections=3,
                  timeout=0.5
                  ):
@@ -72,19 +54,26 @@ class RedisConnection:
 
     @retry(connection_type="like_db")  # Если не удается достучаться до базы, падаем с ошибкой
     def get(self, key):
-        rds = self.get_connection()
-        response = rds.get(key)
-        return response
+        return self.common_get(key)
 
     @retry(connection_type="like_cache")  # Если не удается достучаться до базы, возвращаем None
     def cache_get(self, key):
-        rds = self.get_connection()
-        response = rds.get(key)
-        return response
+        return self.common_get(key)
 
-    @retry(connection_type="like_cache")  # Если не удается достучаться до базы, возвращаем None
+    @retry(connection_type="like_cache")
     def cache_set(self, key, score, ttl):
         rds = self.get_connection()
-        rds.set(key, score, ex=ttl)
+        if type(score) is list:
+            rds.lpush(key, *score)
+        else:
+            rds.set(key, score, ex=ttl)
+
+    def common_get(self, key):
+        rds = self.get_connection()
+        if rds.type(key) == b'list':
+            response = [item.decode() for item in rds.lrange(key, 0, -1)]
+        else:
+            response = rds.get(key)
+        return response
 
 
