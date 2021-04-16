@@ -1,6 +1,4 @@
 import hashlib
-import random
-import json
 
 
 TTL = 60 * 60  # cache for 60 minutes
@@ -34,6 +32,4 @@ def get_score(store, phone=None, email=None, birthday=None, gender=None, first_n
 
 
 def get_interests(store, cid):
-    interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
-    r = store.get("i:{}".format(cid))
-    return json.loads(r) if r else ['']  #random.sample(interests, 2)
+    return store.get("i:{}".format(cid))
