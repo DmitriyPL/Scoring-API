@@ -2,10 +2,14 @@ import functools
 import datetime
 import unittest
 import hashlib
+import random
 
 
 import api
 from store import RedisConnection
+
+
+TTL = 60 * 60  # cache for 60 minutes
 
 
 def cases(cases):
@@ -16,7 +20,7 @@ def cases(cases):
                 new_args = args + (c if isinstance(c, tuple) else (c,))
                 try:
                     f(*new_args)
-                except AssertionError:
+                except Exception:
                     print(new_args[1])
                     raise AssertionError
         return wrapper
@@ -28,6 +32,13 @@ class TestSuite(unittest.TestCase):
         self.context = {}
         self.headers = {}
         self.settings = RedisConnection()
+        self.set_value_for_interests_request()
+
+    def set_value_for_interests_request(self):
+        interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
+        for cid in range(9):
+            key = "i:{}".format(cid)
+            self.settings.cache_set(key, random.sample(interests, 2), TTL)
 
     def get_response(self, request):
         return api.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
